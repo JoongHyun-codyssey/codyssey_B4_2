@@ -1,0 +1,53 @@
+[START] 2026-10-16 16:03:51 KST
+AGENT_HOME=/home/agent-admin/agent-leak-app
+AGENT_KEY_PATH=/home/agent-admin/agent-leak-app/api_keys
+AGENT_LOG_DIR=/mission-docs/logs/setup
+AGENT_PORT=15034
+AGENT_UPLOAD_DIR=/home/agent-admin/agent-leak-app/upload_files
+CPU_MAX_OCCUPY=100
+MEMORY_LIMIT=512
+MULTI_THREAD_ENABLE=false
+>>> Starting Agent Boot Sequence...
+[1/6] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1000)
+[2/6] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/6] Checking Required Files             [OK]
+   ... Verified 'secret.key' with correct key string.
+[4/6] Checking Port Availability          [OK]
+   ... Port 15034 is available.
+[5/6] Verifying Log Permission            [OK]
+   ... Log directory is writable: /mission-docs/logs/setup
+[6/6] Verifying Mission Environment       [OK]
+   ... MEMORY_LIMIT=512MB, CPU_MAX_OCCUPY=100%, MULTI_THREAD_ENABLE=False
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+2026-10-16 16:03:51,621 [INFO] [SafetyGuard] Process priority lowered (nice=10).
+2026-10-16 16:03:51,621 [INFO] Agent listening at port 15034
+
+==================================================
+ [ Agent Initiate ] Resource Check 
+==================================================
+ [ MEMORY ] Limit: 512MB 		[ OK ]
+ [ CPU    ] Limit: 100%  		[ WARNING: Recommend Under 50% ]
+ [ THREAD ] Concurrency: False 		[ OK ]
+--------------------------------------------------
+ >>> SYSTEM STATUS: STABLE. STARTING WORKLOAD MONITORING...
+==================================================
+
+2026-10-16 16:03:53,639 [INFO] [CpuWorker] Started. Maximum CPU Limit: 100%
+2026-10-16 16:03:53,642 [INFO] [CpuWorker] Current Load: 5.00%
+2026-10-16 16:03:56,765 [INFO] [CpuWorker] Current Load: 7.74%
+2026-10-16 16:03:59,888 [INFO] [CpuWorker] Current Load: 17.73%
+2026-10-16 16:04:03,013 [INFO] [CpuWorker] Current Load: 19.93%
+2026-10-16 16:04:06,137 [INFO] [CpuWorker] Current Load: 20.87%
+2026-10-16 16:04:09,268 [INFO] [CpuWorker] Current Load: 24.42%
+2026-10-16 16:04:12,397 [INFO] [CpuWorker] Current Load: 32.91%
+2026-10-16 16:04:15,525 [INFO] [CpuWorker] Current Load: 42.43%
+2026-10-16 16:04:18,649 [INFO] [CpuWorker] Current Load: 45.77%
+2026-10-16 16:04:21,781 [INFO] [CpuWorker] Current Load: 46.81%
+2026-10-16 16:04:24,894 [INFO] [CpuWorker] Current Load: 52.59%
+2026-10-16 16:04:25,001 [CRITICAL] [CpuWorker] CPU Threshold Violated! (52.59000000000001%).
+Terminated
+[END] 2026-10-16 16:04:25 KST EXIT_CODE=143

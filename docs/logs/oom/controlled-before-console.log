@@ -1,0 +1,53 @@
+[START] 2026-10-16 15:19:08 KST
+AGENT_HOME=/home/agent-admin/agent-leak-app
+AGENT_KEY_PATH=/home/agent-admin/agent-leak-app/api_keys
+AGENT_LOG_DIR=/mission-docs/logs/setup
+AGENT_PORT=15034
+AGENT_UPLOAD_DIR=/home/agent-admin/agent-leak-app/upload_files
+CPU_MAX_OCCUPY=30
+MEMORY_LIMIT=256
+MULTI_THREAD_ENABLE=false
+>>> Starting Agent Boot Sequence...
+[1/6] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1000)
+[2/6] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/6] Checking Required Files             [OK]
+   ... Verified 'secret.key' with correct key string.
+[4/6] Checking Port Availability          [OK]
+   ... Port 15034 is available.
+[5/6] Verifying Log Permission            [OK]
+   ... Log directory is writable: /mission-docs/logs/setup
+[6/6] Verifying Mission Environment       [OK]
+   ... MEMORY_LIMIT=256MB, CPU_MAX_OCCUPY=30%, MULTI_THREAD_ENABLE=False
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+2026-10-16 15:19:08,816 [INFO] [SafetyGuard] Process priority lowered (nice=10).
+2026-10-16 15:19:08,816 [INFO] Agent listening at port 15034
+
+==================================================
+ [ Agent Initiate ] Resource Check 
+==================================================
+ [ MEMORY ] Limit: 256MB 		[ WARNING: Recommend Over 256MB ]
+ [ CPU    ] Limit: 30%  		[ OK ]
+ [ THREAD ] Concurrency: False 		[ OK ]
+--------------------------------------------------
+ >>> SYSTEM STATUS: STABLE. STARTING WORKLOAD MONITORING...
+==================================================
+
+2026-10-16 15:19:10,846 [INFO] [MemoryWorker] Current Heap: 25MB
+2026-10-16 15:19:13,879 [INFO] [MemoryWorker] Current Heap: 50MB
+2026-10-16 15:19:16,914 [INFO] [MemoryWorker] Current Heap: 75MB
+2026-10-16 15:19:19,951 [INFO] [MemoryWorker] Current Heap: 100MB
+2026-10-16 15:19:22,988 [INFO] [MemoryWorker] Current Heap: 125MB
+2026-10-16 15:19:26,021 [INFO] [MemoryWorker] Current Heap: 150MB
+2026-10-16 15:19:29,056 [INFO] [MemoryWorker] Current Heap: 175MB
+2026-10-16 15:19:32,091 [INFO] [MemoryWorker] Current Heap: 200MB
+2026-10-16 15:19:35,128 [INFO] [MemoryWorker] Current Heap: 225MB
+2026-10-16 15:19:38,139 [INFO] [MemoryWorker] Current Heap: 250MB
+2026-10-16 15:19:41,157 [INFO] [MemoryWorker] Current Heap: 275MB
+2026-10-16 15:19:41,159 [CRITICAL] [MemoryGuard] Memory limit exceeded (275MB >= 256MB) / (Recommend Over 256MB)
+2026-10-16 15:19:41,160 [CRITICAL] [MemoryGuard] Self-terminating process 36059 to prevent system instability.
+Killed
+[END] 2026-10-16 15:19:41 KST EXIT_CODE=137
