@@ -1,0 +1,64 @@
+# macOS / Windows
+.DS_Store
+._*
+Thumbs.db
+
+# Local editor settings and swap files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Provided application binaries and distribution archives
+# Keep provided files in data/. Keep evidence in docs/.
+/data/
+/agent-leak-app*
+/agent-app-linux-*
+/bin/agent-leak-app*
+/bin/agent-app-linux-*
+
+# API keys, credentials, and personal environment settings
+api_keys/
+*.key
+*.pem
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+.env
+.env.*
+!.env.example
+!.env.sample
+
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local runtime output and temporary work
+# Root-only paths preserve docs/logs/ and docs/screenshots/.
+/logs/
+/runtime/
+/tmp/
+/temp/
+*.pid
+*.pid.lock
+*.sock
+*.tmp
+*.bak
+
+# Process and memory dumps
+core
+core.[0-9]*
+*.core
+*.dmp
+*.hprof
+
+# Submission evidence is intentionally tracked.
+# Do not add a blanket *.log, *.png, *.jpg, or docs/ rule.
+
