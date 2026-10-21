@@ -1,0 +1,37 @@
+
+[PID CHECK]
+root     57163   685  0 14:25 pts/1    00:00:00 runuser -u agent-admin -- bash -lc  set -e  export MEMORY_LIMIT=512 export CPU_MAX_OCCUPY=30 export MULTI_THREAD_ENABLE=true  cd "$AGENT_HOME"  printf "[START] %s\n" "$(date "+%Y-%m-%d %H:%M:%S %Z")"  env | sort | grep -E "^(MEMORY_LIMIT=|CPU_MAX_OCCUPY=|MULTI_THREAD_ENABLE=)"  exec ./agent-leak-app-arm64 
+agent-a+ 57165 57163  0 14:25 pts/1    00:00:00 ./agent-leak-app-arm64
+agent-a+ 57171 57165  0 14:25 pts/1    00:00:00 ./agent-leak-app-arm64
+
+[SNAPSHOT 1] 2026-10-21 14:30:54 KST
+  PID  PPID   LWP NLWP STAT %CPU     TIME   RSS WCHAN                        COMMAND
+57165 57163 57165    1 S+    0.0 00:00:00  1612 -                            agent-leak-app-
+57171 57165 57171    3 SNl+  0.0 00:00:00 16852 -                            agent-leak-app-
+57171 57165 57235    3 SNl+  0.0 00:00:00 16852 -                            agent-leak-app-
+57171 57165 57236    3 SNl+  0.0 00:00:00 16852 -                            agent-leak-app-
+
+[CONSOLE LINE COUNT]
+46 /mission-docs/logs/deadlock/before-console.log
+
+[LAST LOGS]
+2026-10-21 14:25:13,398 [INFO] [AgentWorker][Worker-Thread-1] Need resource [Socket_Pool_B] to finish job.
+2026-10-21 14:25:13,398 [INFO] [AgentWorker][Worker-Thread-2] Need resource [Shared_Memory_A] to write logs.
+2026-10-21 14:25:13,398 [INFO] [AgentWorker][Worker-Thread-1] WAITING for [Socket_Pool_B]... (Status: BLOCKED)
+2026-10-21 14:25:13,399 [INFO] [AgentWorker][Worker-Thread-2] WAITING for [Shared_Memory_A]... (Status: BLOCKED)
+
+[SNAPSHOT 2] 2026-10-21 14:31:04 KST
+  PID  PPID   LWP NLWP STAT %CPU     TIME   RSS WCHAN                        COMMAND
+57165 57163 57165    1 S+    0.0 00:00:00  1612 -                            agent-leak-app-
+57171 57165 57171    3 SNl+  0.0 00:00:00 16852 -                            agent-leak-app-
+57171 57165 57235    3 SNl+  0.0 00:00:00 16852 -                            agent-leak-app-
+57171 57165 57236    3 SNl+  0.0 00:00:00 16852 -                            agent-leak-app-
+
+[CONSOLE LINE COUNT]
+46 /mission-docs/logs/deadlock/before-console.log
+
+[LAST LOGS]
+2026-10-21 14:25:13,398 [INFO] [AgentWorker][Worker-Thread-1] Need resource [Socket_Pool_B] to finish job.
+2026-10-21 14:25:13,398 [INFO] [AgentWorker][Worker-Thread-2] Need resource [Shared_Memory_A] to write logs.
+2026-10-21 14:25:13,398 [INFO] [AgentWorker][Worker-Thread-1] WAITING for [Socket_Pool_B]... (Status: BLOCKED)
+2026-10-21 14:25:13,399 [INFO] [AgentWorker][Worker-Thread-2] WAITING for [Shared_Memory_A]... (Status: BLOCKED)
