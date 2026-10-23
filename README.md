@@ -1,18 +1,20 @@
 # Linux 프로세스 장애 분석 및 이슈 리포팅
 
-제공된 `agent-leak-app-arm64`를 Linux 컨테이너에서 실행하고, 메모리 보호 종료·CPU 보호 종료·Deadlock의 설정 변경 전후를 실행 로그와 관제 자료로 비교했다. 실험은 2026-10-16과 2026-10-21(KST)에 수행했으며, 아래 내용은 저장소에 남은 증거를 기준으로 정리했다.
+제공된 `agent-leak-app-arm64`를 Linux 컨테이너에서 실행하고, 메모리 보호 종료·CPU 보호 종료·Deadlock의 설정 변경 전후를 실행 로그와 관제 자료로 비교했다. 실험은 2026-10-16과 2026-10-21(KST), CPU 추가 재검증은 2026-10-23(KST)에 수행했으며, 아래 내용은 저장소에 남은 증거를 기준으로 정리했다.
 
-> **문서 상태: 실험 결과 및 증거 연결 완료.** CPU 보호 종료와 설정 변경 효과는 확인했지만, 실제 OS CPU 과점유와 요청 지연은 입증하지 못했다. 추가 측정이 필요한 항목은 아래에 남겼다.
+> **문서 상태: 실험 결과 및 증거 연결 완료.** CPU 재검증에서 특정 프로세스의 짧은 CPU 급상승을 확인했다. 보호 종료와 설정 변경 효과도 확인했으며, 지속적인 CPU 과점유·시스템 포화·요청 지연은 미입증으로 구분했다.
 
 ## 1. 리포트와 결과 요약
 
 | 리포트 | 변경 조건 | Before | After | 확인 범위 |
 | --- | --- | --- | --- | --- |
 | [OOM / MemoryGuard](reports/oom/oom.md) | `MEMORY_LIMIT=256 → 512` | Heap 275 MB에서 자체 종료, START~END 33초, 종료 코드 137 | Heap 525 MB에서 캐시 정리, RSS 감소와 작업 재개 확인. 작업 로그 20분 45초, 정리 19회 | 앱 메모리 보호 동작 비교. 커널 OOM Killer의 종료로 확정하지 않음 |
-| [CPU / CpuWorker](reports/cpu/cpu.md) | `CPU_MAX_OCCUPY=100 → 30` | 내부 부하 52.59%에서 임계치 위반, START~END 34초, 종료 코드 143 | 내부 부하 30%에서 cooldown, 5%에서 재개. 약 20분 36초 작업 로그 | Before·After OS CPU 표본은 각각 부모 최대 7%, 자식 최대 5%. 실제 CPU 과점유·지연 증거 미확보 |
+| [CPU / CpuWorker](reports/cpu/cpu.md) | `CPU_MAX_OCCUPY=100 → 30` | 10/16 내부 부하 52.59%에서 임계치 위반, START~END 34초, 종료 코드 143 | 내부 부하 30%에서 cooldown, 5%에서 재개. 약 20분 36초 작업 로그 | 10/23 재검증에서 작업 PID 40의 OS CPU 0 → 23.8 → 0% 확인. 지속 과점유·지연은 미입증 |
 | [Deadlock](reports/deadlock/deadlock.md) | `MULTI_THREAD_ENABLE=true → false` | 두 스레드의 순환 대기 로그, PID 유지 및 10초 간격 측정에서 로그·CPU 시간·RSS 정체 | 작업 완료와 후속 자원 작업 확인, 시작 6분 35초 뒤 수동 종료 | 로그와 OS 관측에 근거한 진단. 구체적인 커널 대기 함수는 미확인 |
 
 각 리포트에 재현 명령, 원본 로그 링크, 스크린샷과 설명, 원인 분석, Before & After 표를 연결했다. OOM과 CPU의 After 로그에는 캡처 이후 종료 기록도 있으므로, 캡처 시점의 생존을 전체 실행의 무종료나 장기 안정성으로 해석하지 않는다. 실행 경계와 종료 해석은 해당 리포트를 따른다.
+
+CPU 추가 재검증은 10/16 Before와 같은 세 실험 설정에서 `top` 갱신 간격을 0.2초로 지정한 별도 실행이다. [연속 세 화면](docs/screenshots/cpu/12-recheck-spike-window.png)과 [top 원본](docs/logs/cpu/recheck-20261023-01/top.log)에서 작업 PID 40의 짧은 상승과 CPU 시간 0.05초 증가를 확인했다. 같은 실행의 [콘솔 로그](docs/logs/cpu/recheck-20261023-01/console.log)는 내부 부하 56.25%에서 보호 로그를 출력하고, START부터 43초 뒤에 종료 코드 143을 기록했다. OS CPU 23.8%와 앱 내부 부하 56.25%는 다른 지표이며, 10/16 After의 1초 간격 측정과 직접 비교해 사용률 감소를 주장하지 않는다.
 
 ## 2. 진행 현황
 
@@ -25,9 +27,8 @@
 - [x] 이슈 리포트 3건 작성, 로그 및 스크린샷 연결
 - [x] [공통 이슈 템플릿](.github/ISSUE_TEMPLATE/bug-report.md) 작성
 - [x] README의 환경·결과·경로를 실제 증거에 맞게 갱신
-- [ ] 실제 OS CPU 급상승과 요청 지연의 추가 측정
+- [x] 0.2초 간격 CPU 재검증으로 PID별 짧은 급상승 원본·연속 화면·보호 종료 확보
 - [x] OOM 원본 관제에서 회복 직전·직후 동일 PID의 RSS 감소 확인
-- [ ] 여러 메모리 회복 주기의 장기 추이 및 After 종료 사유 추가 검증
 
 ## 3. 확인한 실습 환경
 
@@ -41,7 +42,7 @@
 | 실행 파일 | `/home/agent-admin/agent-leak-app/agent-leak-app-arm64` | [설정·권한 확인](docs/screenshots/setup/03-app-configuration.png) |
 | 앱 포트 | 컨테이너 내부 TCP `15034` | [부팅 로그](docs/logs/setup/first-run-console.log), [관제 로그](docs/logs/setup/first-run-monitor.log) |
 | 관측 도구 | `monitor.sh`, `ps`, `top`, `ss` 등 | [도구 확인](docs/screenshots/setup/02-tools-and-user.png), 각 리포트 |
-| 실험 일자 | OOM·CPU: 2026-10-16 / Deadlock: 2026-10-21(KST) | 각 리포트의 START 및 END 기록 |
+| 실험 일자 | OOM·CPU: 2026-10-16 / Deadlock: 2026-10-21 / CPU 재검증: 2026-10-23(KST) | 각 리포트의 START 및 END 기록 |
 
 환경 점검·관제는 관리자 셸에서도 수행했으나, 앱은 `runuser`를 통해 일반 사용자로 실행했다. 바이너리 디컴파일 및 리버스 엔지니어링은 수행하지 않고 실행 로그와 Linux 도구 출력으로 분석했다.
 
@@ -85,7 +86,7 @@
 | [.github/ISSUE_TEMPLATE/bug-report.md](.github/ISSUE_TEMPLATE/bug-report.md) | 새 GitHub 이슈 작성용 공통 양식 |
 | [docs/logs/setup/](docs/logs/setup/) / [docs/screenshots/setup/](docs/screenshots/setup/) | 환경 점검과 초기 실행 자료 |
 | [docs/logs/oom/](docs/logs/oom/) / [docs/screenshots/oom/](docs/screenshots/oom/) | OOM 탐색 실행 및 조건을 맞춘 비교 자료 |
-| [docs/logs/cpu/](docs/logs/cpu/) / [docs/screenshots/cpu/](docs/screenshots/cpu/) | CPU 비교와 보조 확인 자료 |
+| [docs/logs/cpu/](docs/logs/cpu/) / [docs/screenshots/cpu/](docs/screenshots/cpu/) | CPU 비교와 보조 확인 자료, 10/23 재검증 로그·캡처 |
 | [docs/logs/deadlock/](docs/logs/deadlock/) / [docs/screenshots/deadlock/](docs/screenshots/deadlock/) | Deadlock 비교 및 스레드 확인 자료 |
 
 README, 리포트, 템플릿, 관제 스크립트와 제출용 증거를 관리한다. 제공 바이너리, 키, 개인용 `.env`, 가상환경 및 루트 `logs/`는 제외한다. **제출용 로그는 `docs/logs/`에 보관하며 `*.log` 전체를 제외하지 않는다.**
@@ -121,6 +122,8 @@ ss -ltnp 'sport = :15034'
 | Deadlock | `MULTI_THREAD_ENABLE=true` | `MULTI_THREAD_ENABLE=false` | `MEMORY_LIMIT=512`, `CPU_MAX_OCCUPY=30` |
 
 처음 메모리를 512로 높인 탐색 실행에서는 CPU 보호 종료가 먼저 발생했다. OOM의 본 비교는 CPU 설정을 30으로 맞춘 `controlled-before` / `controlled-after` 로그를 사용한다. 초기 실행 및 탐색 실행을 본 비교와 혼합하지 않았다.
+
+10/23 CPU 재검증의 세 실험값은 기존 Before와 동일하고, 관제는 `top -b -d 0.2 -w 180 -u agent-admin`을 사용했다. 원본은 [recheck-20261023-01/](docs/logs/cpu/recheck-20261023-01/)에 분리했으며, 설정·최고 표본·상위 표본·상승 전후의 캡처 4장은 [CPU 리포트](reports/cpu/cpu.md)에 연결했다.
 
 `tee -a`는 기존 파일에 내용을 덧붙인다. 재실행할 때는 파일명을 구분하거나 START·END·수동 종료 기록과 PID로 실행 경계를 남긴다. 종료 코드 기록 예제는 Bash의 `PIPESTATUS[0]`으로 앱 실행 명령 쪽 상태를 가져오며, `tee`의 상태와 구분한다.
 
@@ -185,16 +188,21 @@ Heap 25 MB부터 275 MB까지 증가한 뒤 MemoryGuard가 자체 종료를 기�
 3. Root Cause Analysis: 확인한 사실, 원인 추론과 미확인 범위
 4. Workaround & Verification: 변경 조건, Before & After와 검증 한계
 
-## 9. 남은 확인 항목
+## 9. 검증 범위와 선택 후속 검증
 
-| 항목 | 현재 증거 | 추가로 필요한 자료 |
+| 항목 | 현재 증거 | 정밀 분석을 위한 선택 후속 검증 |
 | --- | --- | --- |
-| 실제 CPU 과점유·지연 | 내부 부하 임계치 위반 및 보호 종료, 낮은 OS CPU 표본 | 해당 앱 PID의 CPU 급상승 구간과 요청 응답 시간 |
 | OOM 회복 및 종료 | PID 37449의 RSS 516.63 → 16.55 MiB, 정리 19회와 작업 재개. 코드 1의 END 기록 2개 | 여러 회복 주기의 장기 추이와 중복 END의 실행 경계·종료 사유 |
 | CPU After 종료 | 약 20분 36초 작업 진행 후 코드 120, 다른 날짜의 수동 종료 메모 | 종료 코드와 후행 메모의 관계 및 종료 원인 |
 | Deadlock의 내부 구현 | 자원 보유·순환 대기 로그와 스레드 정체, `WCHAN=-` | 구체적인 대기 함수·락 구현 확인은 이번 분석 범위 밖 |
 
-빈 결과를 예시값으로 채우지 않고, 확보된 결과와 추가 검증 범위를 구분했다. 현재 실험값 변경은 바이너리의 소스 결함 수정이나 장기 안정성을 보장하는 조치가 아니다.
+확보된 결과와 미확인 사항을 구분했으며, 위 후속 검증은 현재 과제의 필수 완료·제출 조건에 포함하지 않는다. 현재 실험값 변경은 바이너리의 소스 결함 수정이나 장기 안정성을 보장하는 조치가 아니다.
+
+### 선택 후속 검증
+
+같은 0.2초 관제 간격의 After 비교와 요청 지연 측정은 정밀한 분석을 위한 선택 사항이다. 현재 보고서의 필수 미완료 항목이나 제출 조건에 포함하지 않는다. 확보된 증거는 PID별 짧은 CPU 급상승과 앱 보호 동작이며, 지속적인 과점유·시스템 포화·요청 지연은 이번 검증 범위 밖으로 기록한다.
+
+여러 메모리 회복 주기의 장기 추이와 After 종료 사유 조사도 선택 후속 검증이다. 현재 확보한 메모리 증가·보호 종료·회복 및 설정 변경 비교를 과제 결과로 정리하며, 장기 안정성과 미확인 종료 사유는 분석 한계로 남긴다.
 
 ## 10. 제출 전 확인
 
@@ -203,7 +211,7 @@ Heap 25 MB부터 275 MB까지 증가한 뒤 MemoryGuard가 자체 종료를 기�
 - [x] 실제 파일 경로로 원본 로그 및 스크린샷 연결
 - [x] 초기 탐색 실행, 본 비교, 수동 종료와 후행 기록을 구분
 - [x] 제공 바이너리·키 파일이 기존 Git 추적 목록에 없음을 확인
-- [ ] 실제 CPU 급상승 및 지연 증거 보완
+- [x] CPU 재검증의 실제 급상승 구간과 보호 종료 증거 연결
 - [ ] 최종 Repository 링크 또는 PDF 제출
 
 ## 11. 참고
