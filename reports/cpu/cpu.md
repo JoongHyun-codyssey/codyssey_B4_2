@@ -1,12 +1,14 @@
 # [Bug] CPU Latency — 내부 부하 임계치 위반으로 프로세스 종료, CPU_MAX_OCCUPY 조정 후 종료 회피
 
+[프로젝트 개요 및 결과 요약](../../README.md)
+
 > **검증 범위:** CPU 보호 로그와 종료, 설정 변경 후 작업 지속은 확인했다. 실제 OS CPU 급상승 및 요청 지연은 이번 측정에서 입증하지 못했다. 앱의 `Current Load`를 OS CPU 사용률로 해석하지 않는다.
 
 ## 1. Description (현상 설명)
 
 2026-10-16(KST), 격리된 Docker 컨테이너에서 일반 사용자 `agent-admin`으로 `agent-leak-app-arm64`를 실행했다. `MEMORY_LIMIT=512`, `CPU_MAX_OCCUPY=100`, `MULTI_THREAD_ENABLE=false` 조건에서 앱의 `Current Load`가 5.00%에서 52.59%로 증가한 후 `CPU Threshold Violated!` 로그와 함께 프로세스가 종료됐다.
 
-같은 환경에서 `CPU_MAX_OCCUPY`만 30으로 변경하자 내부 부하가 30.00%에 도달할 때 cooldown을 시작하고 5.00%에서 작업을 재개하는 로그가 반복됐다. 실행 시간 1분 38초 시점에 PID가 존재했으며, 이후 로그는 준비 완료 후 약 6분 58초까지 진행됐다.
+같은 환경에서 `CPU_MAX_OCCUPY`만 30으로 변경하자 내부 부하가 30.00%에 도달할 때 cooldown을 시작하고 5.00%에서 작업을 재개하는 로그가 반복됐다. 실행 시간 1분 38초 시점에 PID가 존재했으며, 스크린샷은 16:17:50까지, 원본 실행 로그는 16:31:28까지의 진행을 담고 있다. 원본에는 16:31:34의 `EXIT_CODE=120`도 있어 정상 종료나 무기한 실행을 확인한 것으로 표시하지 않는다.
 
 | 항목 | 환경 / 값 |
 | --- | --- |
@@ -56,6 +58,7 @@ After 실행은 관제·실행 로그 파일명을 `after-top.log`, `after-conso
 앱은 부팅 시 `CPU Limit: 100%`와 `WARNING: Recommend Under 50%`를 출력했다.
 
 ```text
+[START] 2026-10-16 16:03:51 KST
 2026-10-16 16:03:51,621 [INFO] Agent listening at port 15034
 2026-10-16 16:03:53,639 [INFO] [CpuWorker] Started. Maximum CPU Limit: 100%
 2026-10-16 16:03:53,642 [INFO] [CpuWorker] Current Load: 5.00%
@@ -67,7 +70,11 @@ Terminated
 [END] 2026-10-16 16:04:25 KST EXIT_CODE=143
 ```
 
-준비 완료 직후의 포트 리스닝 로그부터 종료 시점까지 약 33초다. 런처의 `[START]` 행은 해당 캡처에 없으므로 이 값을 전체 실행 시간으로 단정하지 않는다.
+원본 [Before 실행 로그](../../docs/logs/cpu/before-console.log)의 런처 `[START]`부터 `[END]`까지는 초 단위로 34초이며, 포트 리스닝 로그부터는 약 33초다. 아래 스크린샷에는 `[START]` 행이 없지만 설정, 임계치 위반과 종료 상태가 함께 보인다.
+
+![Before CPU 설정 100%, 내부 부하 52.59%에서 임계치 위반 및 종료 코드 143](../../docs/screenshots/cpu/04-before-console.png)
+
+*그림 1. `MEMORY_LIMIT=512`, CPU 설정 100%, `MULTI_THREAD_ENABLE=false`와 보호 로그 직후 종료를 확인한 화면.*
 
 ### 2.3 Before: OS CPU 실측과 앱 수치의 차이
 
@@ -83,9 +90,17 @@ Terminated
 
 **수집된 프로세스별 표본의 최댓값은 부모 7.0%, 자식 5.0%다.** 부모·자식 최댓값의 발생 시각은 다르므로 이를 더해 동시 사용률이라고 해석하지 않는다. 앱의 내부 부하 52.59%와 OS 측정값은 일치하지 않으며, 이 자료로 실제 CPU 과점유를 입증할 수 없다. 1초 간격 표본만으로 표본 사이의 모든 순간을 판단할 수도 없다.
 
+![Before top 로그에서 추출한 16:04:10~16:04:24의 부모와 자식 프로세스 CPU 표본](../../docs/screenshots/cpu/03-before-top.png)
+
+*그림 2. 종료 직전의 `top` 원본 행을 추출한 화면. 내부 부하 값과 별도로 OS의 프로세스별 `%CPU`를 확인한다. 전체 표본의 상위값 추출은 그림 6에 있다.*
+
 ### 2.4 After: 30%에서 cooldown, 5%에서 재개
 
 부팅 화면에서 `MEMORY Limit: 512MB`, `CPU Limit: 30%`, `THREAD Concurrency: False`를 확인했다. 앱은 `Healthy System Monitoring` 시나리오를 선택했다.
+
+![After CPU 설정 30%와 Healthy System Monitoring 시나리오 및 작업 시작](../../docs/screenshots/cpu/06-after-console.png)
+
+*그림 3. 변경한 CPU 설정과 고정한 메모리·스레드 조건을 확인한 화면. 초기 스케줄러 작업의 완료 로그도 표시된다.*
 
 ```text
 2026-10-16 16:10:52,578 [INFO] Agent listening at port 15034
@@ -98,6 +113,18 @@ Terminated
 2026-10-16 16:17:50,073 [INFO] [CpuWorker] Cooldown complete (5.00%). Resuming load increase...
 ```
 
+스크린샷 이후의 [After 실행 로그](../../docs/logs/cpu/after-console.log)에는 다음 기록이 더 있다. 준비 완료(16:10:52)부터 마지막 작업 로그(16:31:28)까지 약 20분 36초 동안 진행 로그가 남았고, 총 35회의 peak/cooldown 쌍을 확인했다. 해당 로그에는 Before와 같은 `CPU Threshold Violated!` 또는 `CRITICAL` 행이 없다.
+
+```text
+2026-10-16 16:30:58,592 [INFO] [CpuWorker] Peak reached (30.00%). Starting cooldown...
+2026-10-16 16:31:17,363 [INFO] [CpuWorker] Cooldown complete (5.00%). Resuming load increase...
+2026-10-16 16:31:27,766 [INFO] [CpuWorker] Current Load: 22.21%
+2026-10-16 16:31:28,485 [INFO] [MemoryWorker] Current Heap: 450MB
+[END] 2026-10-16 16:31:34 KST EXIT_CODE=120
+```
+
+`EXIT_CODE=120`의 원인을 설명하는 오류나 종료 요청은 제공된 로그에 없다. 그 다음 행의 `[MANUAL STOP] 2026-10-21 14:24:42 KST CPU experiment finished` 메모는 종료 행보다 날짜가 늦으므로 10월 16일 종료의 직접 원인으로 단정하지 않는다.
+
 16:12:31(KST)의 `ps` 출력에서 실행 시간 1분 38초인 두 프로세스를 확인했다.
 
 ```text
@@ -108,25 +135,40 @@ Terminated
 
 `ps`의 `%CPU`는 프로세스 실행 기간에 걸친 평균 지표이며, `top` 갱신 구간의 값과 동일하게 해석하지 않는다. 제공된 After `top` 화면의 16:12:16~16:12:20 구간에서 자식 프로세스 CPU는 0~2%였다. 메모리는 변하고 실행 로그도 이어져, 해당 시점에 작업이 계속 진행된다는 근거가 된다.
 
+![After top 화면의 16:12:16~16:12:20 프로세스 CPU와 메모리 표본](../../docs/screenshots/cpu/05-after-top.png)
+
+*그림 4. 화면에 보이는 구간에서 자식 프로세스 `%CPU`는 0~2%다. 이 구간을 After 전체의 최댓값으로 사용하지 않는다.*
+
+![16:12:31의 ps 출력과 16:12:29까지 이어진 After 작업 로그](../../docs/screenshots/cpu/07-after-process-check.png)
+
+*그림 5. 부모·자식 PID, 실행 시간 `01:38`과 같은 시점의 작업 진행을 함께 확인한 화면.*
+
+[After top 원본](../../docs/logs/cpu/after-top.log)의 앱 프로세스 표본 전체(16:10:53~16:12:21)를 확인하면 부모 PID 46187의 최댓값은 7.0%, 자식 PID 46193의 최댓값은 5.0%다. Before 원본의 표본 구간은 16:03:52~16:04:24로 길이가 다르다. 두 실행의 수집된 최댓값은 같으며, CPU 사용률 감소를 입증한 것으로 해석하지 않는다.
+
+![After cooldown 반복 로그와 Before CPU 표본 상위값을 추출한 검증 화면](../../docs/screenshots/cpu/08-cpu-log-verification.png)
+
+*그림 6. 위쪽은 16:17:50까지 반복된 내부 부하 제어, 아래쪽은 Before 원본의 `%CPU` 상위값이다. After 원본 로그의 이후 진행·종료 기록은 위 본문과 원본 링크에서 확인한다.*
+
 ### 2.5 증거 파일
 
 원본 로그:
 
-- [Before 실행 로그](../docs/logs/cpu/before-console.log)
-- [Before top 로그](../docs/logs/cpu/before-top.log)
-- [After 실행 로그](../docs/logs/cpu/after-console.log)
-- [After top 로그](../docs/logs/cpu/after-top.log)
+- [Before 실행 로그](../../docs/logs/cpu/before-console.log): 설정, 시작·종료 시각, 임계치 위반과 종료 코드 143
+- [Before top 로그](../../docs/logs/cpu/before-top.log): 프로세스별 OS CPU 원본 표본
+- [After 실행 로그](../../docs/logs/cpu/after-console.log): 설정, cooldown 반복, 마지막 진행과 종료 코드 120
+- [After top 로그](../../docs/logs/cpu/after-top.log): 프로세스별 OS CPU 원본 표본
+- [실행 전 baseline top 로그](../../docs/logs/cpu/after-baseline-top.log): 대상 프로세스가 없는 별도 관측 구간
 
 스크린샷:
 
-- [03-before-top.png](../docs/screenshots/cpu/03-before-top.png): Before OS 측정 구간
-- [04-before-console.png](../docs/screenshots/cpu/04-before-console.png): Before 설정, 임계치 위반, 종료 상태
-- [05-after-top.png](../docs/screenshots/cpu/05-after-top.png): After OS CPU 측정
-- [06-after-console.png](../docs/screenshots/cpu/06-after-console.png): After 설정 및 작업 시작
-- [07-after-process-check.png](../docs/screenshots/cpu/07-after-process-check.png): PID·실행 시간 및 로그 진행
-- [08-cpu-log-verification.png](../docs/screenshots/cpu/08-cpu-log-verification.png): cooldown 반복 및 Before CPU 표본 상위값
+- [03-before-top.png](../../docs/screenshots/cpu/03-before-top.png): Before OS 측정 구간 (그림 2)
+- [04-before-console.png](../../docs/screenshots/cpu/04-before-console.png): Before 설정, 임계치 위반, 종료 상태 (그림 1)
+- [05-after-top.png](../../docs/screenshots/cpu/05-after-top.png): After OS CPU 측정 (그림 4)
+- [06-after-console.png](../../docs/screenshots/cpu/06-after-console.png): After 설정 및 작업 시작 (그림 3)
+- [07-after-process-check.png](../../docs/screenshots/cpu/07-after-process-check.png): PID·실행 시간 및 로그 진행 (그림 5)
+- [08-cpu-log-verification.png](../../docs/screenshots/cpu/08-cpu-log-verification.png): cooldown 반복 및 Before CPU 표본 상위값 (그림 6)
 
-`01-after-baseline-top.png`는 대상 프로세스 행이 없는 화면이므로 정상 실행 중 CPU 관제의 증거로 사용하지 않았다. `02-process-check.png`는 앞선 OOM After 실행이 이미 끝났음을 확인한 별도 자료이며, 이번 CPU Before/After 실행과 혼합하지 않았다.
+[01-after-baseline-top.png](../../docs/screenshots/cpu/01-after-baseline-top.png)는 대상 프로세스 행이 없는 화면이므로 정상 실행 중 CPU 관제의 증거로 사용하지 않았다. [02-process-check.png](../../docs/screenshots/cpu/02-process-check.png)는 앞선 OOM After 실행이 이미 끝났음을 확인한 별도 자료이며, 이번 CPU Before/After 실행과 혼합하지 않았다.
 
 ## 3. Root Cause Analysis (원인 분석)
 
@@ -160,16 +202,17 @@ CPU 연산을 계속 요구하는 프로세스가 많아지면 실행 대기 시
 | CPU_MAX_OCCUPY | 100 | 30 |
 | 부팅 시 CPU 판정 | Recommend Under 50% 경고 | OK |
 | 앱 내부 부하 제어 | 52.59%에서 임계치 위반 | 30%에서 cooldown, 5%에서 재개 |
-| 종료 / 생존 | 16:04:25 종료, EXIT_CODE=143 | 16:12:31에 PID 존재, ELAPSED=01:38 |
-| 추가 진행 근거 | 해당 없음 | 16:17:50까지 제어 로그 반복, 준비 완료 후 약 6분 58초 |
-| OS CPU 표본 | 수집된 행 기준 부모 최대 7%, 자식 최대 5% | 제공된 16:12:16~20 구간에서 자식 0~2% |
+| 종료 / 생존 | 16:04:25 종료, EXIT_CODE=143 | 16:12:31에 PID 존재, ELAPSED=01:38; 원본 종료 행은 16:31:34, EXIT_CODE=120 |
+| 추가 진행 근거 | 시작·종료 행 기준 34초 | 스크린샷은 16:17:50까지; 원본은 16:31:28까지, 준비 완료 후 약 20분 36초 |
+| OS CPU 표본 | 전체 앱 표본(16:03:52~16:04:24)에서 부모 최대 7%, 자식 최대 5% | 전체 앱 표본(16:10:53~16:12:21)에서 부모 최대 7%, 자식 최대 5% |
 
-After의 6분 58초는 마지막으로 확인한 로그까지의 관찰 기간이다. 자연 종료까지의 수명이나 장시간 안정성을 뜻하지 않는다. Before는 전체 로그에서 추출한 최댓값, After는 제공된 화면 구간의 값이므로 동일 기간의 최대 CPU 감소율을 계산하지 않는다.
+After의 약 20분 36초는 마지막으로 확인한 작업 로그까지의 관찰 기간이다. 종료 코드 120의 원인이 확인되지 않았으므로 정상 종료나 장시간 안정성을 뜻하지 않는다. Before와 After의 `top` 수집 기간이 다르고, After의 `top`은 실행 로그보다 일찍 끝나므로 전체 실행 기간의 최대 CPU 감소율을 계산하지 않는다.
 
 ### 4.3 후속 확인 및 해결 제안
 
 - 제공자에게 `Current Load` 정의, `CPU_MAX_OCCUPY`의 역할, 보호 종료 임계치와 시나리오 선택 조건을 확인한다.
 - 실제 CPU 과점유를 검증하려면 앱 동작 구간을 포함한 PID별 측정과 요청 지연 자료를 추가 확보한다. 관련 없는 부하를 만들어 앱의 CPU 장애 증거로 대신하지 않는다.
+- After 실행의 종료 코드 120을 재현하고 종료 직전의 표준 오류·종료 요청·런처 상태를 수집해 종료 원인을 확인한다. 후행 수동 종료 메모만으로 원인을 확정하지 않는다.
 - 소스 코드를 수정할 수 있는 단계에서는 실제 CPU 프로파일을 근거로 원인을 찾고, 작업량 제한·대기·작업 분할 등을 검토한다. 이번에는 특정 구현 결함을 확인하지 못했으므로 제안으로만 남긴다.
 - 현재 상태: **보호 종료 및 설정 변경 비교는 확보 / 실제 OS CPU 급상승과 지연 증거는 미확보.** 제출 요건 중 실제 CPU 급상승 캡처를 충족했다고 표시하지 않는다.
 

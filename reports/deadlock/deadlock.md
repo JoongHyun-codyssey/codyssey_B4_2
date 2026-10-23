@@ -1,5 +1,7 @@
 # [Bug] Deadlock - 두 작업 스레드의 상반된 락 획득 순서로 작업 진행 중단
 
+[프로젝트 개요 및 결과 요약](../../README.md)
+
 ## 1. Description (현상 설명)
 
 2026-10-21(KST), Docker 컨테이너에서 일반 사용자 `agent-admin`으로 `agent-leak-app-arm64`를 실행했다. `MEMORY_LIMIT=512`, `CPU_MAX_OCCUPY=30`, `MULTI_THREAD_ENABLE=true` 조건에서 두 작업 스레드가 각자 확보한 자원을 유지한 채 상대 자원을 기다리는 로그를 출력했다. 프로세스는 종료되지 않았지만 작업 로그는 더 이상 진행되지 않았다.
@@ -70,11 +72,19 @@ printf '[END] %s EXIT_CODE=%s\n' \
 
 부팅 경고 자체를 교착상태의 증명으로 사용하지 않았다. 실제 락 확보·상대 자원 대기 로그와 OS 관측을 함께 분석했다.
 
+![Before 콘솔: MULTI_THREAD_ENABLE=true와 두 작업 스레드의 자원 보유·대기 로그](../../docs/screenshots/deadlock/01-before-console.png)
+
+그림 1. `true` 설정과 `LOCK ACQUIRED` 이후 서로의 자원을 기다리는 두 `BLOCKED` 로그. [원본 콘솔 로그](../../docs/logs/deadlock/before-console.log)에서 전체 실행 기록을 확인할 수 있다.
+
 ### 2.3 PID 존재와 관제 정체
 
 `ps -ef | grep '[a]gent-leak-app-arm64'`에서 일반 사용자 소유의 부모 PID `57165`, 자식 PID `57171`을 확인했다. root 소유의 `runuser` PID `57163`과 앱 PID를 구분했다.
 
-관제에서 자식 프로세스 스레드는 14:25:11에 3개로 증가했고, 이후 제공된 구간에서 RSS 약 16.41MiB가 유지됐다. 후속 스레드 측정의 RSS는 16852KiB(약 16.46MiB)였으며 두 후속 측정 사이에는 변하지 않았다. 전체 관찰 기간의 메모리가 한 바이트도 변하지 않았다는 의미는 아니다.
+관제에서 자식 프로세스 스레드는 14:25:11에 3개로 증가했다. 아래 스크린샷의 이후 구간에서 RSS 약 16.41MiB가 유지되지만, 원본 관제 로그는 14:30:41까지 이어지고 마지막 RSS는 약 16.46MiB다. 후속 스레드 측정의 RSS도 16852KiB(약 16.46MiB)였으며 두 후속 측정 사이에는 변하지 않았다. 전체 관찰 기간의 메모리가 한 바이트도 변하지 않았다는 의미는 아니다.
+
+![Before 관제: 자식 PID 57171의 스레드가 1개에서 3개로 증가](../../docs/screenshots/deadlock/01-before-monitor.png)
+
+그림 2. 14:25:11의 스레드 증가와 이후 관제 수치. [원본 관제 로그](../../docs/logs/deadlock/before-monitor.log)는 스크린샷보다 긴 구간을 포함한다.
 
 앱은 그대로 두고 관제만 중지한 뒤 다음처럼 스레드를 확인했다.
 
@@ -101,6 +111,10 @@ tail -n 4 /mission-docs/logs/deadlock/before-console.log
 | 콘솔 로그 줄 수 | 46 | 46 |
 | 마지막 작업 로그 | 14:25:13의 `BLOCKED` | 동일 |
 
+![Before 스레드 확인: 10초 간격의 PID·LWP·RSS·로그 줄 수 비교](../../docs/screenshots/deadlock/03-before-thread-check.png)
+
+그림 3. 14:30:54와 14:31:04 측정 모두 로그 줄 수 46줄 및 마지막 `BLOCKED` 로그가 같았다. [원본 스레드 확인 로그](../../docs/logs/deadlock/before-thread-check.log)의 46줄은 측정 시점의 값이며, 수동 종료 기록이 추가된 현재 `before-console.log`는 49줄이다.
+
 `TIME`은 경과 시간이 아니라 누적 CPU 시간이며 초 단위 표시다. `00:00:00`을 CPU를 전혀 사용하지 않았다는 의미로 해석하지 않는다. `ps`의 `%CPU` 및 monitor의 `CPU_AVG`는 실행 기간 평균이므로, 이 수치만으로 순간 CPU 사용 여부를 판단하지 않는다.
 
 스레드는 같은 프로세스의 주소 공간을 공유하므로 각 행에 나타난 RSS를 합산하지 않는다. OS LWP와 로그의 `Worker-Thread-1/2` 사이의 정확한 일대일 대응도 확인하지 못했다.
@@ -109,9 +123,13 @@ tail -n 4 /mission-docs/logs/deadlock/before-console.log
 
 After는 14:34:27(KST)에 시작했다. `MEMORY_LIMIT=512`, `CPU_MAX_OCCUPY=30`, `MULTI_THREAD_ENABLE=false`를 확인했고, `Concurrency: False [OK]`가 출력됐다.
 
+![After 시작 콘솔: MULTI_THREAD_ENABLE=false와 Healthy System Monitoring 시나리오 선택](../../docs/screenshots/deadlock/04-after-console.png)
+
+그림 4. 메모리·CPU 설정을 유지하고 `false`로 재실행한 시작 기록과 시나리오 선택.
+
 ```text
 2026-10-21 14:34:29,887 [INFO] >>> Scenario Selected: [Healthy System Monitoring]
-2026-10-21 14:34:30,875 [INFO] [Thread-A] Resumed. Calculating... (100%)
+2026-10-21 14:34:30,873 [INFO] [Thread-A] Resumed. Calculating... (100%)
 2026-10-21 14:34:30,930 [INFO] [Thread-B] Resumed. Calculating... (100%)
 2026-10-21 14:34:30,984 [INFO] [Thread-C] Resumed. Calculating... (100%)
 2026-10-21 14:34:31,036 [INFO] [Scheduler] All tasks completed.
@@ -124,28 +142,36 @@ After는 14:34:27(KST)에 시작했다. `MEMORY_LIMIT=512`, `CPU_MAX_OCCUPY=30`,
 2026-10-21 14:35:31,761 [INFO] [System] Memory Cache Flushed. Process Stabilized.
 ```
 
-`All tasks completed.`는 시작 기록 후 약 4초에 출력됐다. 마지막 제공 로그는 14:35:31로, 시작 후 약 64초까지 앱의 작업 로그가 진행됐다. 메모리 cleanup 경고와 완료 로그는 추가 동작의 증거이며, 이번 캡처의 프로세스 종료 로그는 아니다.
+`All tasks completed.`는 시작 기록 후 약 4초에 출력됐다. 아래 스크린샷은 14:35:31까지 약 64초의 진행을 보여 주지만, [원본 콘솔 로그](../../docs/logs/deadlock/after-console.log)는 14:41:02까지 약 6분 35초의 작업 진행과 이후 수동 종료를 포함한다. `Memory Cache Flushed. Process Stabilized.`는 총 6회 출력됐으며, 마지막 작업 로그는 14:41:02,039의 `CpuWorker Current Load: 11.81%`다. 메모리 cleanup 경고와 완료 로그는 추가 동작의 증거이며, 프로세스 종료 로그는 아니다.
 
-After 관제의 부모 PID는 `60258`, 자식 PID는 `60273`이다. 자식 RSS는 14:34:33의 41.55MiB에서 14:35:00의 266.58MiB까지 변했고, CPU_AVG는 제공된 해당 구간에서 약 1.1~1.4%였다. 자식 스레드 수는 3이었다. `false`를 OS 스레드가 하나뿐이라는 뜻으로 해석하지 않는다.
+![After 후속 콘솔: 작업 완료 및 CPU·메모리 작업 진행](../../docs/screenshots/deadlock/04-after-console2.png)
+
+그림 5. 세 작업의 100% 진행과 `All tasks completed.`, 첫 메모리 cleanup까지의 후속 로그. 스크린샷 이후의 반복 실행과 수동 종료 기록은 원본 콘솔 로그에서 확인한다.
+
+After 관제의 부모 PID는 `60258`, 자식 PID는 `60273`이다. 아래 스크린샷에서 자식 RSS는 14:34:33의 41.55MiB에서 14:35:00의 266.58MiB까지 변했고, CPU_AVG는 해당 구간에서 약 1.1~1.4%였다. 자식 스레드 수는 3이었다. `false`를 OS 스레드가 하나뿐이라는 뜻으로 해석하지 않는다.
+
+![After 관제: 자식 PID 60273의 RSS 변화와 스레드 수](../../docs/screenshots/deadlock/04-after-monitor.png)
+
+그림 6. After 초반의 자원 변화. [원본 관제 로그](../../docs/logs/deadlock/after-monitor.log)는 14:40:53까지 이어지며, 첫 cleanup 전후인 14:35:31과 14:35:32에 자식 RSS가 516.62MiB에서 16.54MiB로 감소한 기록도 포함한다. 마지막 cleanup(14:40:59)은 관제 기록 종료 후이므로 콘솔 로그로만 확인했다.
 
 ### 2.5 증거 파일
 
 원본 로그:
 
-- [before-console.log](../docs/logs/deadlock/before-console.log)
-- [before-monitor.log](../docs/logs/deadlock/before-monitor.log)
-- [before-thread-check.log](../docs/logs/deadlock/before-thread-check.log)
-- [after-console.log](../docs/logs/deadlock/after-console.log)
-- [after-monitor.log](../docs/logs/deadlock/after-monitor.log)
+- [before-console.log](../../docs/logs/deadlock/before-console.log): 설정, 락·대기 로그, 수동 종료 및 종료 코드
+- [before-monitor.log](../../docs/logs/deadlock/before-monitor.log): 14:24:55~14:30:41 관제 기록
+- [before-thread-check.log](../../docs/logs/deadlock/before-thread-check.log): PID 확인 및 10초 간격의 스레드·로그 비교
+- [after-console.log](../../docs/logs/deadlock/after-console.log): 14:34:27~14:41:02 실행, 작업 완료·후속 작업·수동 종료
+- [after-monitor.log](../../docs/logs/deadlock/after-monitor.log): 14:34:15~14:40:53 관제 기록
 
 스크린샷은 실제 저장된 이름을 사용한다.
 
-- [01-before-console.png](../docs/screenshots/deadlock/01-before-console.png): True 설정, 락 확보와 순환 대기
-- [01-before-monitor.png](../docs/screenshots/deadlock/01-before-monitor.png): PID 유지, 스레드 증가 및 관제 수치
-- [03-before-thread-check.png](../docs/screenshots/deadlock/03-before-thread-check.png): PID, 스레드, 10초 전후 로그 정체
-- [04-after-console.png](../docs/screenshots/deadlock/04-after-console.png): False 설정, 정상 시나리오 시작
-- [04-after-console2.png](../docs/screenshots/deadlock/04-after-console2.png): 작업 완료 및 후속 로그
-- [04-after-monitor.png](../docs/screenshots/deadlock/04-after-monitor.png): After PID 유지와 자원 사용 변화
+- [01-before-console.png](../../docs/screenshots/deadlock/01-before-console.png): 그림 1, True 설정·락 확보·순환 대기
+- [01-before-monitor.png](../../docs/screenshots/deadlock/01-before-monitor.png): 그림 2, PID 유지·스레드 증가·관제 수치
+- [03-before-thread-check.png](../../docs/screenshots/deadlock/03-before-thread-check.png): 그림 3, PID·스레드·10초 전후 로그 정체
+- [04-after-console.png](../../docs/screenshots/deadlock/04-after-console.png): 그림 4, False 설정·Healthy System Monitoring 시나리오 시작
+- [04-after-console2.png](../../docs/screenshots/deadlock/04-after-console2.png): 그림 5, 작업 완료·후속 로그
+- [04-after-monitor.png](../../docs/screenshots/deadlock/04-after-monitor.png): 그림 6, After PID 유지·자원 사용 변화
 
 ## 3. Root Cause Analysis (원인 분석)
 
@@ -179,7 +205,7 @@ OS의 `S`는 이벤트를 기다리는 수면 상태이며 그 자체로 Deadloc
 
 ### 4.1 임시 조치
 
-Before 증거를 수집한 뒤 수동 종료임을 `[MANUAL STOP]`으로 기록하고 SIGTERM으로 기존 앱을 종료하도록 절차를 분리했다. 이러한 수동 종료 이후의 종료 코드를 교착상태의 자동 보호 종료로 해석하지 않는다.
+Before 증거를 수집한 뒤 수동 종료임을 `[MANUAL STOP]`으로 기록하고 기존 앱을 종료했다. Before는 14:34:09, After는 14:41:02에 수동 종료와 `EXIT_CODE=143`이 기록돼 있다. 이러한 수동 종료 이후의 종료 코드를 교착상태의 자동 보호 종료나 자연 종료로 해석하지 않는다.
 
 다음 실행에서 `MULTI_THREAD_ENABLE=true → false`만 변경하고 메모리·CPU 설정은 유지했다. 이미 대기 중인 프로세스에 환경변수를 바꿔 교착을 해소한 것이 아니라, **설정을 변경해 새 프로세스를 실행한 회피 조치**다.
 
@@ -190,7 +216,7 @@ Before 증거를 수집한 뒤 수동 종료임을 `[MANUAL STOP]`으로 기록�
 | MULTI_THREAD_ENABLE | true | false |
 | 고정 환경변수 | MEMORY_LIMIT=512, CPU_MAX_OCCUPY=30 | 동일 |
 | 앱 작업 로그 | 두 Worker가 상대 자원 대기, BLOCKED | Scheduler의 All tasks completed |
-| 로그 진행 | 14:25:13 이후 14:31:04까지 새 로그 없음 | 시작 후 약 64초까지 후속 로그 진행 |
+| 로그 진행 | 14:25:13 이후 14:31:04까지 새 로그 없음 | 14:41:02까지 약 6분 35초 동안 후속 로그 진행 |
 | PID | 57165 / 57171 존재 | 60258 / 60273 존재 |
 | 스레드·자원 | 두 후속 측정에서 CPU 시간·RSS·스레드 동일 | 관제 RSS 변화 및 후속 작업 진행 |
 | 판정 | 교착상태를 뒷받침하는 순환 대기·정체 확보 | 관찰 구간에서 해당 교착 현상 회피 |

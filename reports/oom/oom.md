@@ -1,12 +1,14 @@
 # [Bug] OOM — Heap 증가로 MemoryGuard 종료, MEMORY_LIMIT 변경 후 캐시 정리 및 생존 확인
 
+[프로젝트 개요 및 결과 요약](../../README.md)
+
 ## 1. Description (현상 설명)
 
 2026-10-16 KST, Ubuntu 22.04.5 LTS ARM64 컨테이너에서 제공 앱을 일반 사용자로 실행했다. `MEMORY_LIMIT=256`, `CPU_MAX_OCCUPY=30`, `MULTI_THREAD_ENABLE=false` 조건에서 앱 로그의 Heap이 25 MB 단위로 증가했다.
 
 Heap이 275 MB에 도달하자 `MemoryGuard`가 설정값 256 MB 초과를 감지하고 PID 36059의 자체 종료를 기록했다. 실행 명령의 START부터 END까지 33초였으며 종료 코드는 137이었다.
 
-CPU 및 멀티스레드 설정을 유지하고 `MEMORY_LIMIT`만 512로 변경해 재실행했다. 이 실행에서는 Heap 525 MB에서 캐시 정리 및 메모리 회복 로그가 출력되었고, 이후 Heap 25 MB부터 작업이 다시 진행됐다. 별도 `ps` 확인에서 주요 프로세스는 경과 시간 09:01에도 생존했다.
+CPU 및 멀티스레드 설정을 유지하고 `MEMORY_LIMIT`만 512로 변경해 재실행했다. 이 실행에서는 Heap 525 MB에서 캐시 정리 및 메모리 회복 로그가 출력되었고, 이후 Heap 25 MB부터 작업이 다시 진행됐다. 별도 `ps` 확인에서 주요 프로세스는 경과 시간 09:01에도 생존했다. 보관된 전체 앱 로그에는 시작 후 20분 45초까지 작업 출력이 이어지며, 정리 메시지가 19회 기록되어 있다. 마지막 종료 기록은 중복되어 있고 종료 사유는 확인되지 않았다.
 
 ### 실행 환경
 
@@ -63,7 +65,7 @@ APP_EXIT=${PIPESTATUS[0]}
 printf '[END] %s EXIT_CODE=%s\n'   "$(date '+%Y-%m-%d %H:%M:%S %Z')" "$APP_EXIT"   | tee -a /mission-docs/logs/oom/controlled-before-console.log
 ~~~
 
-After의 콘솔 저장 경로는 `controlled-after-console.log`이다. After 관측 시점에는 앱이 실행 중이었으므로 END 및 자연 종료 코드는 확인되지 않았다.
+After의 콘솔 저장 경로는 `controlled-after-console.log`이다. 아래 스크린샷의 관측 시점에는 앱이 실행 중이었다. 보관된 전체 로그 끝에는 이후 추가된 END 기록이 있으므로, 스크린샷 시점의 생존 확인과 최종 로그의 종료 기록을 구분한다(2.4절).
 
 ### 2.2 Before: 메모리 증가 및 보호 종료
 
@@ -88,13 +90,21 @@ After의 콘솔 저장 경로는 `controlled-after-console.log`이다. After 관
 2026-10-16 15:19:13,879 [INFO] [MemoryWorker] Current Heap: 50MB
 2026-10-16 15:19:38,139 [INFO] [MemoryWorker] Current Heap: 250MB
 2026-10-16 15:19:41,157 [INFO] [MemoryWorker] Current Heap: 275MB
-2026-10-16 15:19:41,159 [CRITICAL] [MemoryGuard] Memory limit exceeded (275MB ≥ 256MB) / (Recommend Over 256MB)
+2026-10-16 15:19:41,159 [CRITICAL] [MemoryGuard] Memory limit exceeded (275MB >= 256MB) / (Recommend Over 256MB)
 2026-10-16 15:19:41,160 [CRITICAL] [MemoryGuard] Self-terminating process 36059 to prevent system instability.
 Killed
 [END] 2026-10-16 15:19:41 KST EXIT_CODE=137
 ~~~
 
 START부터 END까지의 실행 시간은 33초다.
+
+![Before: Heap 275 MB에서 MemoryGuard 자체 종료와 EXIT_CODE=137](../../docs/screenshots/oom/04-controlled-before-console.png)
+
+그림 1. 메모리 256 MB, CPU 30, 멀티스레드 false 설정과 Heap 증가, PID 36059 자체 종료를 확인할 수 있다.
+
+![Before: PID 36059의 RSS 증가와 START·END 시각](../../docs/screenshots/oom/05-controlled-before-monitor.png)
+
+그림 2. RSS는 191.38 MiB에서 291.39 MiB까지 증가했다. 15:19:42부터 원본 관제 로그에는 `PROCESS:NOT_RUNNING PORT:NOT_LISTENING`이 기록된다.
 
 ### 2.3 After: 512 MB 설정과 메모리 회복 로그
 
@@ -107,7 +117,11 @@ MEMORY_LIMIT=512
 MULTI_THREAD_ENABLE=false
 ~~~
 
-관제에서는 PID 37449가 경과 시간 103초에도 존재했고, 해당 시점의 RSS는 316.57 MiB였다. 이후 확보된 마지막 관제 구간은 다음과 같다.
+![After: 메모리 512 MB, CPU 30, 멀티스레드 false와 Healthy System Monitoring 선택](../../docs/screenshots/oom/06-controlled-after-console2.png)
+
+그림 3. After 리소스 검사에서 세 설정이 모두 OK이며, `Healthy System Monitoring` 시나리오가 선택됐다. 실행 명령과 환경변수 전체는 [After 시작 화면](../../docs/screenshots/oom/06-controlled-after-console.png)에 있다.
+
+관제에서는 PID 37449가 경과 시간 103초에도 존재했고, 해당 시점의 RSS는 316.57 MiB였다. 해당 PID로 확보된 마지막 관제 구간은 다음과 같다.
 
 | 관제 시각(KST) | PID | RSS(MiB) | ELAPSED_s |
 | --- | ---: | ---: | ---: |
@@ -118,7 +132,13 @@ MULTI_THREAD_ENABLE=false
 | 15:27:53 | 37449 | 466.58 | 252 |
 | 15:27:56 | 37449 | 491.59 | 255 |
 
-이 구간에서는 메모리가 증가하고 있었다. 이후 앱 로그에서는 Heap이 525 MB에 도달했을 때 정리한 뒤 다시 작업하는 동작이 확인됐다.
+![After: PID 37449의 ELAPSED_s=103과 RSS 316.57 MiB](../../docs/screenshots/oom/07-controlled-after-monitor.png)
+
+그림 4. Before의 33초 종료 시점을 넘어 PID와 포트가 유지되는 초기 관제 화면이다.
+
+원본 [After 관제 로그](../../docs/logs/oom/controlled-after-monitor.log) 129~145행에는 첫 정리 전후의 RSS 감소도 남아 있다. 같은 PID의 15:24:44 RSS는 516.63 MiB, 15:24:45 RSS는 16.55 MiB, 15:24:50 RSS는 41.55 MiB다. 앱 로그의 첫 캐시 정리 시각은 15:24:45,260이고 Heap 25 MB 재시작 시각은 15:24:50,286이다. 관제 시각은 초 단위이므로 같은 초 안의 정확한 선후관계까지 판단하지 않았다.
+
+15:27:45~15:27:56 관제 구간에서는 메모리가 증가하고 있었다. 이후 앱 로그에서도 Heap이 525 MB에 도달했을 때 정리한 뒤 다시 작업하는 동작이 확인됐다.
 
 ~~~text
 2026-10-16 15:30:12,969 [INFO] [MemoryWorker] Current Heap: 525MB
@@ -129,6 +149,10 @@ MULTI_THREAD_ENABLE=false
 
 2026-10-16 15:30:18,027 [INFO] [MemoryWorker] Current Heap: 25MB
 ~~~
+
+![After: Heap 525 MB의 캐시 정리와 Heap 25 MB부터 작업 재개](../../docs/screenshots/oom/07-controlled-after-console.png)
+
+그림 5. 15:30:12 정리 후 Heap과 CpuWorker 출력이 계속된다.
 
 다음 주기에서도 동일한 유형의 로그가 확인됐다.
 
@@ -141,6 +165,10 @@ MULTI_THREAD_ENABLE=false
 
 2026-10-16 15:31:23,546 [INFO] [MemoryWorker] Current Heap: 25MB
 ~~~
+
+![After: 다음 주기의 메모리 정리와 작업 재개](../../docs/screenshots/oom/07-controlled-after-console2.png)
+
+그림 6. 15:31:18에도 동일한 정리 경로가 실행되고 15:31:23에 Heap 25 MB부터 다시 진행된다.
 
 ### 2.4 생존 및 진행 확인
 
@@ -156,35 +184,57 @@ ps -u agent-admin -o pid,ppid,stat,etime,args
 37449 37443 SNl+       09:01 ./agent-leak-app-arm64
 ~~~
 
+![After: PID 37449의 마지막 RSS 관제와 ps ELAPSED 09:01](../../docs/screenshots/oom/08-controlled-after-final.png)
+
+그림 7. 위쪽은 PID 37449의 15:27:56까지의 관제 기록이고, 아래쪽은 별도 시점에 실행한 `ps`의 09:01 생존 확인이다. 두 출력의 관측 시점은 다르다.
+
 PID 존재만으로 정상 진행을 판단하지 않았다. 캐시 정리 이후 Heap 기록과 CpuWorker 로그가 이어지는 사실을 함께 확인했다.
 
 주요 프로세스에서 THREADS=3이 관측됐지만, 실제 실행 설정은 MULTI_THREAD_ENABLE=false였다. 해당 설정이 모든 내부 스레드를 비활성화한다고 가정하지 않았다.
 
+현재 보관된 [After 앱 로그](../../docs/logs/oom/controlled-after-console.log)를 끝까지 확인하면, 15:24:45,260부터 15:44:25,447까지 `Memory Cache Flushed` 메시지가 19회 기록되고 마지막 작업 출력은 15:44:26,071의 CpuWorker 로그다. 하나의 START(15:23:41) 이후 작업 출력이 이어지는 구간은 20분 45초다. 이는 앞의 `ps` 생존 확인과 다른 범위의 증거다.
+
+로그 끝에는 아래 END가 두 번 있다. 종료를 유발한 명령이나 추가 START는 이 파일에 없으므로, 자연 종료·수동 종료·장애 재발 여부와 정확한 전체 수명은 확정하지 않는다.
+
+~~~text
+[END] 2026-10-16 15:44:27 KST EXIT_CODE=1
+[END] 2026-10-16 15:53:10 KST EXIT_CODE=1
+~~~
+
 ### 2.5 증거 파일
 
-아래 경로는 프로젝트에 배치한 증거 파일을 기준으로 한다. 이 리포트는 `reports/oom.md`로 저장한다.
+아래 경로는 이 문서의 실제 위치인 `reports/oom/oom.md`를 기준으로 한다. 핵심 스크린샷은 해당 설명 바로 아래에 표시했으며, 보관된 OOM 증거 파일 전체는 다음과 같다.
 
 | 내용 | 증거 |
 | --- | --- |
-| Before 앱 로그 | [controlled-before-console.log](../docs/logs/oom/controlled-before-console.log) |
-| Before 관제 로그 | [controlled-before-monitor.log](../docs/logs/oom/controlled-before-monitor.log) |
-| After 앱 로그 | [controlled-after-console.log](../docs/logs/oom/controlled-after-console.log) |
-| After 관제 로그 | [controlled-after-monitor.log](../docs/logs/oom/controlled-after-monitor.log) |
-| Before 메모리 초과 및 종료 | [04-controlled-before-console.png](../docs/screenshots/oom/04-controlled-before-console.png) |
-| Before RSS 및 START/END | [05-controlled-before-monitor.png](../docs/screenshots/oom/05-controlled-before-monitor.png) |
-| After 초기 생존 관제 | [07-controlled-after-monitor.png](../docs/screenshots/oom/07-controlled-after-monitor.png) |
-| After 설정 및 회복 로그 | [07-controlled-after-console.png](../docs/screenshots/oom/07-controlled-after-console.png) |
-| After 추가 회복 로그 | [07-controlled-after-console2.png](../docs/screenshots/oom/07-controlled-after-console2.png) |
-| After 마지막 관제 및 ps | [08-controlled-after-final.png](../docs/screenshots/oom/08-controlled-after-final.png) |
+| Before 앱 로그 | [controlled-before-console.log](../../docs/logs/oom/controlled-before-console.log) |
+| Before 관제 로그 | [controlled-before-monitor.log](../../docs/logs/oom/controlled-before-monitor.log) |
+| After 앱 로그 | [controlled-after-console.log](../../docs/logs/oom/controlled-after-console.log) |
+| After 관제 로그(추가 실행 포함) | [controlled-after-monitor.log](../../docs/logs/oom/controlled-after-monitor.log) |
+| Before 메모리 초과 및 종료 | [04-controlled-before-console.png](../../docs/screenshots/oom/04-controlled-before-console.png) |
+| Before RSS 및 START/END | [05-controlled-before-monitor.png](../../docs/screenshots/oom/05-controlled-before-monitor.png) |
+| After 실행 명령·환경변수·부팅 검사 | [06-controlled-after-console.png](../../docs/screenshots/oom/06-controlled-after-console.png) |
+| After 리소스 검사 및 시나리오 선택 | [06-controlled-after-console2.png](../../docs/screenshots/oom/06-controlled-after-console2.png) |
+| After 초기 생존 관제 | [07-controlled-after-monitor.png](../../docs/screenshots/oom/07-controlled-after-monitor.png) |
+| After 설정 및 회복 로그 | [07-controlled-after-console.png](../../docs/screenshots/oom/07-controlled-after-console.png) |
+| After 추가 회복 로그 | [07-controlled-after-console2.png](../../docs/screenshots/oom/07-controlled-after-console2.png) |
+| After 마지막 PID 37449 관제 및 ps | [08-controlled-after-final.png](../../docs/screenshots/oom/08-controlled-after-final.png) |
+| 초기 탐색 Before 앱 로그(CPU=100) | [before-console.log](../../docs/logs/oom/before-console.log) |
+| 초기 탐색 Before 관제 로그 | [before-monitor.log](../../docs/logs/oom/before-monitor.log) |
+| 초기 탐색 After 앱 로그(CPU=100) | [after-console.log](../../docs/logs/oom/after-console.log) |
+| 초기 탐색 After 관제 로그 | [after-monitor.log](../../docs/logs/oom/after-monitor.log) |
+| 초기 탐색 After 시작 및 적용값 | [01-after-console.png](../../docs/screenshots/oom/01-after-console.png) |
+| 초기 탐색 CPU 임계값 종료 콘솔(파일명에 monitor가 있으나 실제 내용은 콘솔) | [02-after-monitor.png](../../docs/screenshots/oom/02-after-monitor.png) |
+| 초기 탐색 After PID·RSS 관제 | [check.png](../../docs/screenshots/oom/check.png) |
 
-Before의 앱 로그 캡처가 `05-controlled-before-monitor.png`라는 이름으로 저장되어 있다면 위 표에 맞춰 `04-controlled-before-console.png`로 정리한다. 실제 RSS 캡처는 `05-controlled-before-monitor.png`에 배치한다.
+실제 이미지를 확인한 결과 `04-controlled-before-console.png`는 앱 종료 로그, `05-controlled-before-monitor.png`는 RSS 관제로 구분되어 있어 파일명 변경은 필요하지 않다. 초기 탐색 자료는 CPU 설정이 본 비교와 달라 보조 자료로 구분한다.
 
 ### 2.6 측정 범위와 제한
 
-- 제공된 After 마지막 RSS 기록은 15:27:56까지다. 앱 실행 로그와 ps는 그 이후에도 생존 및 진행을 보여 주지만, 9분 전체의 연속 RSS 관측이 확인됐다고 기술하지 않았다.
-- 회복 직전·직후 RSS가 내려가는 장면은 현재 캡처에 없다. 메모리 정리 및 Heap 재시작은 앱 로그를 근거로 기술했다.
+- 본 After 실행의 PID 37449에 대한 RSS 기록은 15:27:56까지다. 같은 관제 파일은 15:53:03에 다시 시작되고 이후 PID 43592, 46193 등의 별도 실행도 포함한다. 해당 구간은 PID 37449의 연속 생존 증거에 합산하지 않는다.
+- 회복 직전·직후 RSS가 내려가는 장면은 현재 스크린샷에 없지만 원본 관제 로그의 15:24:44~15:24:50 구간에는 있다. `ps`의 09:01이나 앱 로그의 20분 45초 전체에 대해 연속 RSS가 확보된 것은 아니다.
 - CPU_AVG는 ps가 계산하는 프로세스 생존 기간의 평균이다. 이 값으로 순간 CPU 사용률을 단정하지 않았다.
-- 관측 종료 시점에 After 프로세스는 살아 있었다. 이후 실험 전환을 위해 수동 종료하면 시각과 사유를 별도 기록하며, 이를 장애 재발로 계산하지 않는다.
+- 스크린샷 시점에는 After 프로세스가 살아 있었다. 전체 앱 로그의 END 두 줄은 `EXIT_CODE=1`이지만 종료 경위가 없으므로 정상 종료나 수동 종료로 단정할 수 없다. 종료 명령·시각·사유를 별도로 확보해야 최종 종료를 분류할 수 있다.
 
 ## 3. Root Cause Analysis (원인 분석)
 
@@ -228,12 +278,13 @@ CPU 관련 보호 종료의 영향을 줄이기 위해 두 비교 실행 모두 
 | 주요 PID | 36059 | 37449 |
 | 시작 시각(KST) | 15:19:08 | 15:23:41 |
 | 생존 결과 | START~END 33초 후 종료 | ps 경과 시간 09:01에도 생존 |
+| 전체 앱 로그의 작업 출력 | 종료 직전까지 Heap 증가 | START 후 20분 45초까지 출력, 캐시 정리 19회 |
 | 마지막 제공 RSS | 291.39 MiB | 491.59 MiB |
 | 메모리 임계점에서의 로그 | Heap 275 MB, MemoryGuard 자체 종료 | Heap 525 MB, 캐시 정리 및 회복 |
 | 정리 후 진행 | 해당 실행 종료 | Heap 25 MB부터 재시작, 이후 로그 계속 증가 |
-| 종료 코드 | 137 | 관측 시 실행 중이므로 해당 없음 |
+| 종료 코드 | 137 | 스크린샷 시점에는 실행 중. 전체 로그에 코드 1인 END 두 줄, 종료 경위 미확인 |
 
-Before 시간은 START~END 차이이고 After 09:01은 ps의 ELAPSED다. After는 완료된 총 수명이 아니라 확인된 최소 생존 기간으로 해석했다.
+Before 시간은 START~END 차이이고 After 09:01은 ps의 ELAPSED다. After 앱 로그의 20분 45초는 START부터 마지막 작업 출력까지의 차이다. 두 After 관측값 모두 정확한 최종 종료 사유를 입증하지는 않는다.
 
 ### 검증 결론과 한계
 
@@ -241,7 +292,7 @@ MEMORY_LIMIT을 512로 변경한 실행은 Before의 종료 시점을 넘어 생
 
 이는 소스 코드의 누수 결함을 수정한 결과를 의미하지 않는다. 이 바이너리와 실험 조건에서 확인된 동작 차이이며, 전체 실행 기간에 대한 장기 안정성은 추가 검증 범위다.
 
-초기 탐색 실행에서는 MEMORY_LIMIT=512, CPU_MAX_OCCUPY=100 조건에서 CpuWorker 임계값 위반으로 24초 만에 종료됐다. 이 실행을 메모리 상향에 따른 생존 연장 검증으로 사용하지 않고, CPU 설정을 30으로 고정한 본 비교를 별도로 수행했다.
+초기 탐색 실행에서는 MEMORY_LIMIT=512, CPU_MAX_OCCUPY=100 조건에서 CpuWorker 임계값 위반으로 24초 만에 종료됐다([앱 로그](../../docs/logs/oom/after-console.log), [종료 화면](../../docs/screenshots/oom/02-after-monitor.png)). 이 실행을 메모리 상향에 따른 생존 연장 검증으로 사용하지 않고, CPU 설정을 30으로 고정한 본 비교를 별도로 수행했다.
 
 ### 추가 제안
 
